@@ -1,61 +1,65 @@
-from flask import render_template, jsonify, Flask, redirect, url_for, request
-import random
-import os
-import numpy as np
-from keras.applications.mobilenet import MobileNet 
-from tensorflow.keras.preprocessing import image
-from PIL import Image
-from PIL import ImageOps
-
-
-from keras.applications.mobilenet import preprocess_input, decode_predictions
-from keras.models import model_from_json
-import keras
-from keras import backend as K
+from flask import Flask, render_template,request,flash,redirect,url_for,session
+import sqlite3
 
 app = Flask(__name__)
+app.secret_key="123"
 
-SKIN_CLASSES = {
-  0: 'Actinic Keratoses (Solar Keratoses) or intraepithelial Carcinoma (Bowen’s disease)',
-  1: 'Basal Cell Carcinoma',
-  2: 'Benign Keratosis',
-  3: 'Dermatofibroma',
-  4: 'Melanoma',
-  5: 'Melanocytic Nevi',
-  6: 'Vascular skin lesion'
-
-}
+con=sqlite3.connect("database.db")
+con.execute("create table if not exists user(pid integer primary key,username text,email text,password text)")
+con.close()
 
 @app.route('/')
 def index():
-    return render_template('index.html', title='Home')
+    return render_template('index.html')
 
-@app.route('/uploaded', methods = ['GET', 'POST'])
-def upload_file():
-    if request.method == 'POST':
-        f = request.files['file']
-        path='static/data/'+f.filename
-        f.save(path)
-        # Open and preprocess the image
-        img = image.load_img(path, target_size=(224, 224))
-        img = image.img_to_array(img)
-        img = np.expand_dims(img, axis=0)
-        img = preprocess_input(img)
-        
-        #model code
-        j_file = open('modelnew.json', 'r')
-        loaded_json_model = j_file.read()
-        j_file.close()
-        model = model_from_json(loaded_json_model)
-        
-        model.load_weights('model.h5')
-        predictions = model.predict(img)
-        pred_class = np.argmax(predictions)
-        disease = SKIN_CLASSES[pred_class]
-        accuracy = predictions[0][pred_class] * 100
+@app.route('/login',methods=["GET","POST"])
+def login():
+    if request.method=='POST':
+        username=request.form['username']
+        password=request.form['password']
+        con=sqlite3.connect("database.db")
+        con.row_factory=sqlite3.Row
+        cur=con.cursor()
+        cur.execute("select * from user where username=? and password=?",(username,password))
+        data=cur.fetchone()
 
-        K.clear_session()
-    return render_template('uploaded.html', title='Success', predictions=disease, acc=accuracy, img_file=f.filename)
+        if data:
+            session["username"]=data["username"]
+            session["password"]=data["password"]
+            return redirect("customer")
+        else:
+            flash("Username and Password Mismatch","danger")
+    return redirect(url_for("index"))
 
-if __name__ == "__main__":
+
+@app.route('/customer',methods=["GET","POST"])
+def customer():
+    return render_template("customer.html")
+
+@app.route('/register',methods=['GET','POST'])
+def register():
+    if request.method=='POST':
+        try:
+            name=request.form['username']
+            email=request.form['email']
+            password=request.form['password']
+            con=sqlite3.connect("database.db")
+            cur=con.cursor()
+            cur.execute("insert into user(username,email,password)values(?,?,?)",(name,email,password))
+            con.commit()
+            flash("Record Added  Successfully","success")
+        except:
+            flash("Error in Insert Operation","danger")
+        finally:
+            return redirect(url_for("index"))
+            con.close()
+
+    return render_template('register.html')
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for("index"))
+
+if __name__ == '__main__':
     app.run(debug=True)
